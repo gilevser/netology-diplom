@@ -1,0 +1,34 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/cloud_db
+    username: postgres
+    password: postgresql
+    driver-class-name: org.postgresql.Driver
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+      data-locations: classpath:data.sql
+  jpa:
+    defer-datasource-initialization: true
+    hibernate:
+      ddl-auto: none
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+logging:
+  level:
+    org.springframework.jdbc.datasource.init: debug
+    root: info
+
+server:
+  port: 8080
+
+cloud:
+  storage:
+    path: ./storage
+  jwt:
+    secret: mySuperSecretKeyForJWT123!@#
+    expiration: 3600000
