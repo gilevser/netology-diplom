@@ -29,6 +29,7 @@ public class AuthService {
         if (userRepository.existsByLogin(login)) {
             return false;
         }
+
         User user = new User();
         user.setLogin(login);
         user.setPassword(passwordEncoder.encode(password));
