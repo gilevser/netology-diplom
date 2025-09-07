@@ -3,10 +3,16 @@
 ## Project setup
 
 Собрать проект и установить зависимости с помощью Maven:
+```
+mvn clean package
+```
 
 ## Запуск
 
 Запустить контейнеры с помощью Docker Compose:
+```
+docker-compose up --build
+```
 
 ## Пользователи
 
