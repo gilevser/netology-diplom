@@ -4,7 +4,7 @@
 
 Собрать проект и установить зависимости с помощью Maven:
 ```
-mvn clean package -DskipTests
+mvn clean package
 ```
 
 ## Запуск
