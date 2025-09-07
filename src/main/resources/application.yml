@@ -1,34 +1,64 @@
+#spring:
+#  datasource:
+#    url: jdbc:postgresql://localhost:5432/cloud_db
+#    username: postgres
+#    password: postgresql
+#    driver-class-name: org.postgresql.Driver
+#  sql:
+#    init:
+#      mode: always
+#      schema-locations: classpath:schema.sql
+#      data-locations: classpath:data.sql
+#  jpa:
+#    defer-datasource-initialization: true
+#    hibernate:
+#      ddl-auto: none
+#    show-sql: true
+#    properties:
+#      hibernate:
+#        dialect: org.hibernate.dialect.PostgreSQLDialect
+#
+#logging:
+#  level:
+#    org.springframework.jdbc.datasource.init: debug
+#    root: info
+#
+#server:
+#  port: 8080
+#
+#cloud:
+#  storage:
+#    path: ./storage
+#  jwt:
+#    secret: abcdefghijklmnopqrstuvwxyz0123456789!@
+#    expiration: 3600000
+
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/cloud_db
-    username: postgres
-    password: postgresql
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/cloud_db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgresql}
     driver-class-name: org.postgresql.Driver
-  sql:
-    init:
-      mode: always
-      schema-locations: classpath:schema.sql
-      data-locations: classpath:data.sql
+
   jpa:
-    defer-datasource-initialization: true
     hibernate:
-      ddl-auto: none
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
     show-sql: true
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
-
-logging:
-  level:
-    org.springframework.jdbc.datasource.init: debug
-    root: info
 
 server:
   port: 8080
 
 cloud:
   storage:
-    path: ./storage
+    path: ${CLOUD_STORAGE_PATH:./storage}
   jwt:
-    secret: abcdefghijklmnopqrstuvwxyz0123456789!@
+    secret: mySuperSecretKeyForJWT123!@#ThisIs256BitsKey
     expiration: 3600000
+
+logging:
+  level:
+    org.springframework: INFO
+    ru.netology: DEBUG

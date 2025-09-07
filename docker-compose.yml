@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: cloud-postgres
+    environment:
+      POSTGRES_DB: cloud_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgresql
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - cloud-network
+
+  backend:
+    build: .
+    container_name: cloud-backend
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/cloud_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgresql
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      CLOUD_STORAGE_PATH: /app/storage
+    volumes:
+      - cloud_storage:/app/storage
+    depends_on:
+      - postgres
+    networks:
+      - cloud-network
+
+volumes:
+  postgres_data:
+  cloud_storage:
+
+networks:
+  cloud-network:
+    driver: bridge
