@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -48,7 +49,12 @@ public class FileStorageService {
     }
 
     public List<FileEntity> loadAll(User user) {
-        return fileRepository.findByUserOrderByCreatedDateDesc(user);
+        try {
+            return fileRepository.findByUserOrderByCreatedDateDesc(user);
+        } catch (Exception e) {
+            System.out.println("Error loading files for user " + user.getLogin() + ": " + e.getMessage());
+            return new ArrayList<>();
+        }
     }
 
     public Optional<FileEntity> load(String filename, User user) {

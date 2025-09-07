@@ -3,6 +3,7 @@ package ru.netology.controller;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -15,17 +16,17 @@ import ru.netology.security.JwtTokenUtil;
 import ru.netology.service.FileStorageService;
 
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/cloud")
 public class FileController {
     private final FileStorageService fileStorageService;
     private final UserRepository userRepository;
@@ -56,6 +57,10 @@ public class FileController {
             User user = getUserFromToken(authToken);
             List<FileEntity> files = fileStorageService.loadAll(user);
 
+            if (files == null) {
+                files = new ArrayList<>();
+            }
+
             if (files.size() > limit) {
                 files = files.subList(0, limit);
             }
@@ -69,10 +74,11 @@ public class FileController {
             }
 
             return ResponseEntity.ok(response);
+
         } catch (Exception e) {
-            Map<String, String> error = new HashMap<>();
-            error.put("message", e.getMessage());
-            return ResponseEntity.badRequest().body(error);
+            System.out.println("Error in /list: " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.ok(new ArrayList<>());
         }
     }
 
@@ -157,43 +163,92 @@ public class FileController {
                                         @RequestParam String filename,
                                         @RequestBody Map<String, String> request) {
         try {
-            String newFilename = request.get("name");
-            if (newFilename == null || newFilename.isBlank()) {
+            String decodedFilename = URLDecoder.decode(filename, StandardCharsets.UTF_8.toString());
+            System.out.println("PUT /file request - rename from: '" + decodedFilename + "'");
+            System.out.println("Request body: " + request);
+
+            if (request == null || request.isEmpty()) {
                 Map<String, String> error = new HashMap<>();
-                error.put("message", "New filename required");
+                error.put("message", "Request body is required");
                 return ResponseEntity.badRequest().body(error);
             }
 
+            String newFilename = request.get("filename");
+
+            if (newFilename == null || newFilename.isBlank()) {
+                Map<String, String> error = new HashMap<>();
+                error.put("message", "New filename is required in 'filename' field. Use format: {'filename': 'newfilename.txt'}");
+                return ResponseEntity.badRequest().body(error);
+            }
+
+            System.out.println("New filename: " + newFilename);
+
             User user = getUserFromToken(authToken);
-            FileEntity fileEntity = fileStorageService.load(filename, user)
-                    .orElseThrow(() -> new RuntimeException("File not found"));
+            System.out.println("User: " + user.getLogin());
+
+            FileEntity fileEntity = fileStorageService.load(decodedFilename, user)
+                    .orElseThrow(() -> {
+                        System.out.println("File not found: " + decodedFilename);
+                        return new RuntimeException("File not found: " + decodedFilename);
+                    });
+
+            System.out.println("Found file: " + fileEntity.getFilename() + ", path: " + fileEntity.getFilePath());
 
             if (fileRepository.existsByUserAndFilename(user, newFilename)) {
                 Map<String, String> error = new HashMap<>();
-                error.put("message", "File with this name already exists");
+                error.put("message", "File with name '" + newFilename + "' already exists");
                 return ResponseEntity.badRequest().body(error);
             }
 
             Path oldPath = Paths.get(fileEntity.getFilePath());
             Path newPath = oldPath.resolveSibling(newFilename);
-            Files.move(oldPath, newPath);
+            System.out.println("Moving file from: " + oldPath + " to: " + newPath);
+
+            if (!Files.exists(oldPath)) {
+                Map<String, String> error = new HashMap<>();
+                error.put("message", "Source file not found on disk: " + oldPath);
+                return ResponseEntity.badRequest().body(error);
+            }
+
+            Files.move(oldPath, newPath, StandardCopyOption.REPLACE_EXISTING);
 
             fileEntity.setFilename(newFilename);
             fileEntity.setFilePath(newPath.toString());
             fileRepository.save(fileEntity);
 
+            System.out.println("File successfully renamed to: " + newFilename);
+
             Map<String, String> response = new HashMap<>();
             response.put("message", "File renamed successfully");
+            response.put("oldFilename", decodedFilename);
+            response.put("newFilename", newFilename);
             return ResponseEntity.ok().body(response);
 
+        } catch (UnsupportedEncodingException e) {
+            System.out.println("Encoding error: " + e.getMessage());
+            Map<String, String> error = new HashMap<>();
+            error.put("message", "Filename encoding error");
+            return ResponseEntity.badRequest().body(error);
+
+        } catch (NoSuchFileException e) {
+            System.out.println("File not found on disk: " + e.getMessage());
+            Map<String, String> error = new HashMap<>();
+            error.put("message", "File not found on disk");
+            return ResponseEntity.badRequest().body(error);
+
         } catch (IOException e) {
+            System.out.println("IOException during rename: " + e.getMessage());
+            e.printStackTrace();
             Map<String, String> error = new HashMap<>();
-            error.put("message", "File rename failed: " + e.getMessage());
+            error.put("message", "File operation failed: " + e.getMessage());
             return ResponseEntity.badRequest().body(error);
+
         } catch (Exception e) {
+            System.out.println("Unexpected exception during rename: " + e.getMessage());
+            e.printStackTrace();
             Map<String, String> error = new HashMap<>();
-            error.put("message", e.getMessage());
-            return ResponseEntity.badRequest().body(error);
+            error.put("message", "Internal server error: " + e.getClass().getSimpleName());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
         }
     }
 }
