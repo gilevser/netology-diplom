@@ -14,6 +14,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - cloud-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d cloud_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   backend:
     build: .
@@ -24,12 +29,16 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/cloud_db
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgresql
-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_FLYWAY_ENABLED: "true"
       CLOUD_STORAGE_PATH: /app/storage
+      JWT_SECRET: mySuperSecretKeyForJWT123!@#ThisIs256BitsKey
+      JWT_EXPIRATION: "3600000"
     volumes:
       - cloud_storage:/app/storage
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - cloud-network
 

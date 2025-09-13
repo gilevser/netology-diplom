@@ -9,7 +9,7 @@ import java.util.Objects;
 public class FileEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private Integer id;
 
     @Column(nullable = false)
     private String filename;
@@ -36,8 +36,8 @@ public class FileEntity {
         this.user = user;
     }
 
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
+    public Integer getId() { return id; }
+    public void setId(Integer id) { this.id = id; }
 
     public String getFilename() { return filename; }
     public void setFilename(String filename) { this.filename = filename; }
