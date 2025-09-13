@@ -1,5 +1,7 @@
 package ru.netology.controller;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
@@ -8,38 +10,36 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import ru.netology.entity.FileEntity;
+import org.springframework.web.server.ResponseStatusException;
+import ru.netology.dto.FileInfoDto;
+import ru.netology.dto.FileResponse;
+import ru.netology.dto.RenameRequest;
 import ru.netology.entity.User;
-import ru.netology.repository.FileRepository;
-import ru.netology.repository.UserRepository;
 import ru.netology.security.JwtTokenUtil;
-import ru.netology.service.FileStorageService;
+import ru.netology.service.FileOperationService;
+import ru.netology.repository.UserRepository;
 
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
-import java.util.ArrayList;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 @RestController
 public class FileController {
-    private final FileStorageService fileStorageService;
+    private static final Logger logger = LoggerFactory.getLogger(FileController.class);
+
+    private final FileOperationService fileOperationService;
     private final UserRepository userRepository;
-    private final FileRepository fileRepository;
     private final JwtTokenUtil jwtTokenUtil;
 
-    public FileController(FileStorageService fileStorageService,
+    public FileController(FileOperationService fileOperationService,
                           UserRepository userRepository,
-                          FileRepository fileRepository,
                           JwtTokenUtil jwtTokenUtil) {
-        this.fileStorageService = fileStorageService;
+        this.fileOperationService = fileOperationService;
         this.userRepository = userRepository;
-        this.fileRepository = fileRepository;
         this.jwtTokenUtil = jwtTokenUtil;
     }
 
@@ -47,61 +47,39 @@ public class FileController {
         String token = authToken.startsWith("Bearer ") ? authToken.substring(7) : authToken;
         String username = jwtTokenUtil.getUsernameFromToken(token);
         return userRepository.findByLogin(username)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
     }
 
     @GetMapping("/list")
-    public ResponseEntity<?> getFileList(@RequestHeader("auth-token") String authToken,
-                                         @RequestParam(defaultValue = "10") int limit) {
+    public ResponseEntity<List<FileInfoDto>> getFileList(@RequestHeader("auth-token") String authToken,
+                                                         @RequestParam(defaultValue = "10") int limit) {
         try {
             User user = getUserFromToken(authToken);
-            List<FileEntity> files = fileStorageService.loadAll(user);
-
-            if (files == null) {
-                files = new ArrayList<>();
-            }
-
-            if (files.size() > limit) {
-                files = files.subList(0, limit);
-            }
-
-            List<Map<String, Object>> response = new ArrayList<>();
-            for (FileEntity file : files) {
-                Map<String, Object> fileInfo = new HashMap<>();
-                fileInfo.put("filename", file.getFilename());
-                fileInfo.put("size", file.getSize());
-                response.add(fileInfo);
-            }
-
-            return ResponseEntity.ok(response);
+            List<FileInfoDto> files = fileOperationService.getUserFiles(user, limit);
+            return ResponseEntity.ok(files);
 
         } catch (Exception e) {
-            System.out.println("Error in /list: " + e.getMessage());
-            e.printStackTrace();
-            return ResponseEntity.ok(new ArrayList<>());
+            logger.error("Error retrieving file list for user", e);
+            return ResponseEntity.ok(List.of());
         }
     }
 
     @PostMapping(value = "/file", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> uploadFile(@RequestHeader("auth-token") String authToken,
-                                        @RequestParam String filename,
-                                        @RequestParam("file") MultipartFile file) {
+    public ResponseEntity<FileResponse> uploadFile(@RequestHeader("auth-token") String authToken,
+                                                   @RequestParam String filename,
+                                                   @RequestParam("file") MultipartFile file) {
         try {
             User user = getUserFromToken(authToken);
-            fileStorageService.store(file, filename, user);
+            fileOperationService.uploadFile(file, filename, user);
 
-            Map<String, String> response = new HashMap<>();
-            response.put("message", "File uploaded successfully");
-            return ResponseEntity.ok().body(response);
+            return ResponseEntity.ok(new FileResponse("File uploaded successfully"));
 
         } catch (IOException e) {
-            Map<String, String> error = new HashMap<>();
-            error.put("message", "File upload failed: " + e.getMessage());
-            return ResponseEntity.badRequest().body(error);
+            logger.warn("File upload failed: {}", e.getMessage());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File upload failed: " + e.getMessage());
         } catch (Exception e) {
-            Map<String, String> error = new HashMap<>();
-            error.put("message", e.getMessage());
-            return ResponseEntity.badRequest().body(error);
+            logger.error("Unexpected error during file upload", e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error");
         }
     }
 
@@ -110,14 +88,13 @@ public class FileController {
                                           @RequestParam String filename) {
         try {
             User user = getUserFromToken(authToken);
-            FileEntity fileEntity = fileStorageService.load(filename, user)
-                    .orElseThrow(() -> new RuntimeException("File not found"));
+            var fileEntity = fileOperationService.getFileForDownload(filename, user);
 
             Path filePath = Paths.get(fileEntity.getFilePath());
             Resource resource = new UrlResource(filePath.toUri());
 
             if (!resource.exists() || !resource.isReadable()) {
-                return ResponseEntity.notFound().build();
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "File not found or not readable");
             }
 
             return ResponseEntity.ok()
@@ -126,129 +103,49 @@ public class FileController {
                     .body(resource);
 
         } catch (MalformedURLException e) {
-            Map<String, String> error = new HashMap<>();
-            error.put("message", "Invalid file path");
-            return ResponseEntity.badRequest().body(error);
+            logger.warn("Invalid file path for download: {}", filename);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid file path");
         } catch (Exception e) {
-            Map<String, String> error = new HashMap<>();
-            error.put("message", e.getMessage());
-            return ResponseEntity.badRequest().body(error);
+            logger.error("Error downloading file: {}", filename, e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error downloading file");
         }
     }
 
     @DeleteMapping("/file")
-    public ResponseEntity<?> deleteFile(@RequestHeader("auth-token") String authToken,
-                                        @RequestParam String filename) {
+    public ResponseEntity<FileResponse> deleteFile(@RequestHeader("auth-token") String authToken,
+                                                   @RequestParam String filename) {
         try {
             User user = getUserFromToken(authToken);
-            fileStorageService.delete(filename, user);
+            fileOperationService.deleteFile(filename, user);
 
-            Map<String, String> response = new HashMap<>();
-            response.put("message", "File deleted successfully");
-            return ResponseEntity.ok().body(response);
+            return ResponseEntity.ok(new FileResponse("File deleted successfully"));
 
         } catch (IOException e) {
-            Map<String, String> error = new HashMap<>();
-            error.put("message", "File deletion failed: " + e.getMessage());
-            return ResponseEntity.badRequest().body(error);
+            logger.warn("File deletion failed: {}", e.getMessage());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File deletion failed: " + e.getMessage());
         } catch (Exception e) {
-            Map<String, String> error = new HashMap<>();
-            error.put("message", e.getMessage());
-            return ResponseEntity.badRequest().body(error);
+            logger.error("Error deleting file: {}", filename, e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error deleting file");
         }
     }
 
     @PutMapping("/file")
-    public ResponseEntity<?> renameFile(@RequestHeader("auth-token") String authToken,
-                                        @RequestParam String filename,
-                                        @RequestBody Map<String, String> request) {
+    public ResponseEntity<FileResponse> renameFile(@RequestHeader("auth-token") String authToken,
+                                                   @RequestParam String filename,
+                                                   @RequestBody RenameRequest request) {
         try {
-            String decodedFilename = URLDecoder.decode(filename, StandardCharsets.UTF_8.toString());
-            System.out.println("PUT /file request - rename from: '" + decodedFilename + "'");
-            System.out.println("Request body: " + request);
-
-            if (request == null || request.isEmpty()) {
-                Map<String, String> error = new HashMap<>();
-                error.put("message", "Request body is required");
-                return ResponseEntity.badRequest().body(error);
-            }
-
-            String newFilename = request.get("filename");
-
-            if (newFilename == null || newFilename.isBlank()) {
-                Map<String, String> error = new HashMap<>();
-                error.put("message", "New filename is required in 'filename' field. Use format: {'filename': 'newfilename.txt'}");
-                return ResponseEntity.badRequest().body(error);
-            }
-
-            System.out.println("New filename: " + newFilename);
-
             User user = getUserFromToken(authToken);
-            System.out.println("User: " + user.getLogin());
+            fileOperationService.renameFile(filename, request.getFilename(), user);
 
-            FileEntity fileEntity = fileStorageService.load(decodedFilename, user)
-                    .orElseThrow(() -> {
-                        System.out.println("File not found: " + decodedFilename);
-                        return new RuntimeException("File not found: " + decodedFilename);
-                    });
+            Map<String, Object> details = new HashMap<>();
+            details.put("oldFilename", filename);
+            details.put("newFilename", request.getFilename());
 
-            System.out.println("Found file: " + fileEntity.getFilename() + ", path: " + fileEntity.getFilePath());
-
-            if (fileRepository.existsByUserAndFilename(user, newFilename)) {
-                Map<String, String> error = new HashMap<>();
-                error.put("message", "File with name '" + newFilename + "' already exists");
-                return ResponseEntity.badRequest().body(error);
-            }
-
-            Path oldPath = Paths.get(fileEntity.getFilePath());
-            Path newPath = oldPath.resolveSibling(newFilename);
-            System.out.println("Moving file from: " + oldPath + " to: " + newPath);
-
-            if (!Files.exists(oldPath)) {
-                Map<String, String> error = new HashMap<>();
-                error.put("message", "Source file not found on disk: " + oldPath);
-                return ResponseEntity.badRequest().body(error);
-            }
-
-            Files.move(oldPath, newPath, StandardCopyOption.REPLACE_EXISTING);
-
-            fileEntity.setFilename(newFilename);
-            fileEntity.setFilePath(newPath.toString());
-            fileRepository.save(fileEntity);
-
-            System.out.println("File successfully renamed to: " + newFilename);
-
-            Map<String, String> response = new HashMap<>();
-            response.put("message", "File renamed successfully");
-            response.put("oldFilename", decodedFilename);
-            response.put("newFilename", newFilename);
-            return ResponseEntity.ok().body(response);
-
-        } catch (UnsupportedEncodingException e) {
-            System.out.println("Encoding error: " + e.getMessage());
-            Map<String, String> error = new HashMap<>();
-            error.put("message", "Filename encoding error");
-            return ResponseEntity.badRequest().body(error);
-
-        } catch (NoSuchFileException e) {
-            System.out.println("File not found on disk: " + e.getMessage());
-            Map<String, String> error = new HashMap<>();
-            error.put("message", "File not found on disk");
-            return ResponseEntity.badRequest().body(error);
-
-        } catch (IOException e) {
-            System.out.println("IOException during rename: " + e.getMessage());
-            e.printStackTrace();
-            Map<String, String> error = new HashMap<>();
-            error.put("message", "File operation failed: " + e.getMessage());
-            return ResponseEntity.badRequest().body(error);
+            return ResponseEntity.ok(new FileResponse("File renamed successfully", details));
 
         } catch (Exception e) {
-            System.out.println("Unexpected exception during rename: " + e.getMessage());
-            e.printStackTrace();
-            Map<String, String> error = new HashMap<>();
-            error.put("message", "Internal server error: " + e.getClass().getSimpleName());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+            logger.error("Error renaming file: {}", filename, e);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
         }
     }
 }
