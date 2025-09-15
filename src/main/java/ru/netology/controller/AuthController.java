@@ -21,6 +21,11 @@ public class AuthController {
         String login = authRequest.get("login");
         String password = authRequest.get("password");
 
+        if (login == null || login.isBlank() || password == null || password.isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("message", "Bad credentials"));
+        }
+
         Optional<String> token = authService.authenticate(login, password);
         if (token.isPresent()) {
             return ResponseEntity.ok(Map.of("auth-token", token.get()));
