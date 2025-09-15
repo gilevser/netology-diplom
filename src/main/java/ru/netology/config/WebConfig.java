@@ -11,9 +11,13 @@ public class WebConfig implements WebMvcConfigurer {
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
                 .allowCredentials(true)
-                .allowedOrigins("http://localhost:8081") // Порт React/Vue приложения
-                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                .allowedOrigins(
+                        "http://localhost:8081",
+                        "http://192.168.0.10:8081/"
+                )
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD")
                 .allowedHeaders("*")
+                .exposedHeaders("Authorization", "auth-token", "Content-Type")
                 .maxAge(3600);
     }
 }

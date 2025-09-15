@@ -157,6 +157,4 @@
 			</plugin>
 		</plugins>
 	</build>
-
 </project>
-<!--	mvn test -Dspring.profiles.active=test-->
